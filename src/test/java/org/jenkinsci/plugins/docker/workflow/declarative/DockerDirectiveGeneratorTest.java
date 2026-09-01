@@ -24,15 +24,16 @@
 
 package org.jenkinsci.plugins.docker.workflow.declarative;
 
-import com.gargoylesoftware.htmlunit.HttpMethod;
-import com.gargoylesoftware.htmlunit.WebRequest;
-import com.gargoylesoftware.htmlunit.WebResponse;
-import com.gargoylesoftware.htmlunit.util.NameValuePair;
+import org.htmlunit.HttpMethod;
+import org.htmlunit.WebRequest;
+import org.htmlunit.WebResponse;
+import org.htmlunit.util.NameValuePair;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.model.Describable;
+import jakarta.servlet.ServletRequest;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
-import javax.annotation.Nonnull;
 import jenkins.model.OptionalJobProperty;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
@@ -127,7 +128,7 @@ public class DockerDirectiveGeneratorTest {
                 "}");
     }
 
-    private void assertGenerateDirective(@Nonnull AbstractDirective desc, @Nonnull String responseText) throws Exception {
+    private void assertGenerateDirective(@NonNull AbstractDirective desc, @NonNull String responseText) throws Exception {
         // First, make sure the expected response text actually matches the toGroovy for the directive.
         assertEquals(desc.toGroovy(true), responseText);
 
@@ -137,7 +138,7 @@ public class DockerDirectiveGeneratorTest {
         List<NameValuePair> params = new ArrayList<NameValuePair>();
         params.add(new NameValuePair("json", staplerJsonForDescr(desc).toString()));
         // WebClient.addCrumb *replaces* rather than *adds*:
-        params.add(new NameValuePair(r.jenkins.getCrumbIssuer().getDescriptor().getCrumbRequestField(), r.jenkins.getCrumbIssuer().getCrumb(null)));
+        params.add(new NameValuePair(r.jenkins.getCrumbIssuer().getDescriptor().getCrumbRequestField(), r.jenkins.getCrumbIssuer().getCrumb((ServletRequest) null)));
         wrs.setRequestParameters(params);
         WebResponse response = wc.getPage(wrs).getWebResponse();
         assertEquals("text/plain", response.getContentType());

@@ -32,9 +32,11 @@ import hudson.Launcher;
 import hudson.model.FileParameterValue;
 import hudson.model.Result;
 import hudson.model.TaskListener;
+import hudson.slaves.DumbSlave;
 import hudson.tools.ToolProperty;
 import hudson.util.ArgumentListBuilder;
 import hudson.util.Secret;
+import hudson.util.StreamTaskListener;
 import java.io.File;
 import java.util.Collection;
 import java.util.Collections;
@@ -48,6 +50,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.commons.fileupload.FileItem;
 import org.apache.commons.io.FileUtils;
 import org.hamcrest.Matchers;
+import static org.hamcrest.Matchers.is;
 import org.jenkinsci.lib.configprovider.ConfigProvider;
 import org.jenkinsci.lib.configprovider.model.Config;
 import org.jenkinsci.plugins.configfiles.custom.CustomConfig;
@@ -66,6 +69,7 @@ import org.jenkinsci.plugins.workflow.steps.StepExecution;
 import org.jenkinsci.plugins.workflow.steps.SynchronousNonBlockingStepExecution;
 import org.jenkinsci.plugins.workflow.test.steps.SemaphoreStep;
 import org.junit.Assume;
+import static org.junit.Assume.assumeTrue;
 import org.junit.ClassRule;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -76,6 +80,7 @@ import org.jvnet.hudson.test.BuildWatcher;
 import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.LoggerRule;
 import org.jvnet.hudson.test.RestartableJenkinsRule;
+import org.jvnet.hudson.test.SimpleCommandLauncher;
 import org.jvnet.hudson.test.TestExtension;
 import org.kohsuke.stapler.DataBoundConstructor;
 
@@ -106,7 +111,7 @@ public class WithContainerStepTest {
                 WorkflowJob p = story.j.jenkins.createProject(WorkflowJob.class, "prj");
                 p.setDefinition(new CpsFlowDefinition(
                     "node {\n" +
-                    "  withDockerContainer('httpd:2.4.12') {\n" +
+                    "  withDockerContainer('httpd:2.4.59') {\n" +
                     "    sh 'cp /usr/local/apache2/conf/extra/httpd-userdir.conf .; ls -la'\n" +
                     "  }\n" +
                     "  sh 'ls -la; cat *.conf'\n" +
@@ -130,7 +135,7 @@ public class WithContainerStepTest {
                 p.setDefinition(new CpsFlowDefinition(
                     "node {\n" +
                     "  timeout(time: 20, unit: 'SECONDS') {\n" +
-                    "    withDockerContainer('httpd:2.4.12') {\n" +
+                    "    withDockerContainer('httpd:2.4.59') {\n" +
                     "      sh 'sleep infinity'\n" +
                     "    }\n" +
                     "  }\n" +
@@ -163,16 +168,23 @@ public class WithContainerStepTest {
                 DockerTestUtil.assumeDocker();
                 WorkflowJob p = story.j.jenkins.createProject(WorkflowJob.class, "prj");
                 p.setDefinition(new CpsFlowDefinition(
-                    "node {\n" +
-                    "  withDockerContainer('httpd:2.4.12') {\n" +
-                    "    sh 'trap \\'echo got SIGTERM\\' TERM; trap \\'echo exiting; exit 99\\' EXIT; echo sleeping now with JENKINS_SERVER_COOKIE=$JENKINS_SERVER_COOKIE; sleep 999'\n" +
-                    "  }\n" +
-                    "}", true));
+                    """
+                    node {
+                      withDockerContainer('ubuntu:kinetic-20220602') {
+                        sh '''
+                          trap 'echo got SIGTERM' TERM
+                          trap 'echo running cleanup; exit 99' EXIT
+                          echo sleeping now with JENKINS_SERVER_COOKIE=$JENKINS_SERVER_COOKIE
+                          sleep 999
+                        '''
+                      }
+                    }""", true));
                 WorkflowRun b = p.scheduleBuild2(0).waitForStart();
                 story.j.waitForMessage("sleeping now", b);
                 b.doStop();
                 story.j.assertBuildStatus(Result.ABORTED, story.j.waitForCompletion(b));
-                story.j.assertLogContains("script returned exit code 99", b);
+                story.j.assertLogContains("got SIGTERM", b);
+                story.j.assertLogContains("running cleanup", b);
             }
         });
     }
@@ -185,8 +197,8 @@ public class WithContainerStepTest {
                 WorkflowJob p = story.j.jenkins.createProject(WorkflowJob.class, "prj");
                 p.setDefinition(new CpsFlowDefinition(
                     "node {\n" +
-                    "  withDockerContainer('httpd:2.4.12') {\n" +
-                    "    sh \"sleep 5; ps -e -o pid,command | egrep '${pwd tmp: true}/durable-.+/script.sh' | fgrep -v grep | sort -n | tr -s ' ' | cut -d ' ' -f2 | xargs kill -9\"\n" +
+                    "  withDockerContainer('httpd:2.4.54-alpine') {\n" +
+                    "    sh \"set -e; sleep 5; ps -e -o pid,args | egrep '${pwd tmp: true}/durable-.+/script.sh' | fgrep -v grep | sort -n | tr -s ' ' | cut -d ' ' -f2 | xargs kill -9\"\n" +
                     "  }\n" +
                     "}", true));
                 Field hci = BourneShellScript.class.getDeclaredField("HEARTBEAT_CHECK_INTERVAL");
@@ -210,7 +222,7 @@ public class WithContainerStepTest {
                 WorkflowJob p = story.j.jenkins.createProject(WorkflowJob.class, "prj");
                 p.setDefinition(new CpsFlowDefinition(
                     "node {\n" +
-                    "  withDockerContainer('httpd:2.4.12') {\n" +
+                    "  withDockerContainer('httpd:2.4.59') {\n" +
                     "    semaphore 'wait'\n" +
                     "    sh 'cat /usr/local/apache2/conf/extra/httpd-userdir.conf'\n" +
                     "  }\n" +
@@ -294,7 +306,7 @@ public class WithContainerStepTest {
     @Test public void cd() throws Exception {
         story.addStep(new Statement() {
             @Override public void evaluate() throws Throwable {
-                DockerTestUtil.assumeDocker(new VersionNumber("17.12"));
+                DockerTestUtil.assumeDocker(DockerTestUtil.DockerOsMode.LINUX, new VersionNumber("17.12"));
                 WorkflowJob p = story.j.jenkins.createProject(WorkflowJob.class, "prj");
                 p.setDefinition(new CpsFlowDefinition(
                     "node {\n" +
@@ -455,4 +467,60 @@ public class WithContainerStepTest {
         }
     }
 
+    @Issue("JENKINS-64608")
+    @Test public void runningInsideContainer() throws Throwable {
+        story.then(r -> {
+            DockerTestUtil.assumeDocker();
+            assumeTrue("have docker.sock", new File("/var/run/docker.sock").exists());
+            TaskListener taskListener = StreamTaskListener.fromStderr();
+            Launcher.LocalLauncher launcher = new Launcher.LocalLauncher(taskListener);
+            int status = launcher.launch().stdout(taskListener).
+                pwd(new File(WithContainerStepTest.class.getResource("agent-with-docker/Dockerfile").toURI()).getParentFile()).
+                cmds(DockerTool.getExecutable(null, null, null, null), "build", "-t", "agent-with-docker", ".").
+                start().
+                joinWithTimeout(DockerClient.CLIENT_TIMEOUT, TimeUnit.SECONDS, taskListener);
+            Assume.assumeThat("Built agent-with-docker image", status, is(0));
+            DumbSlave s = new DumbSlave("dockerized", "/home/jenkins/agent",
+                new SimpleCommandLauncher("docker run -i --rm --init -v /var/run/docker.sock:/var/run/docker.sock agent-with-docker java -jar /usr/share/jenkins/agent.jar"));
+            r.jenkins.addNode(s);
+            r.waitOnline(s);
+            WorkflowJob p = r.jenkins.createProject(WorkflowJob.class, "p");
+            p.setDefinition(new CpsFlowDefinition(
+                "node('dockerized') {\n" +
+                "  sh 'which docker && docker version'\n" +
+                "  withDockerContainer('httpd:2.4.59') {\n" +
+                "    sh 'cp /usr/local/apache2/conf/extra/httpd-userdir.conf .; ls -la'\n" +
+                "  }\n" +
+                "  sh 'ls -la; cat *.conf'\n" +
+                "}", true));
+            WorkflowRun b = r.buildAndAssertSuccess(p);
+            r.assertLogContains("dockerized seems to be running inside container ", b);
+        });
+    }
+
+    @Ignore("TODO currently broken in CI")
+    @Issue("JENKINS-75102")
+    @Test public void windowsRunningWindowsContainerSpaceInPath() {
+        // Launching batch scripts through cmd /c in docker exec gets tricky with special characters
+        // By default, the path of the temporary Jenkins install and workspace have a space in a folder name and a prj@tmp folder
+        story.addStep(new Statement() {
+            @Override public void evaluate() throws Throwable {
+                DockerTestUtil.assumeWindows();
+                DockerTestUtil.assumeDocker(DockerTestUtil.DockerOsMode.WINDOWS);
+
+                // Kernel must match when running Windows containers on docker on Windows
+                String releaseTag = DockerTestUtil.getWindowsImageTag();
+
+                WorkflowJob p = story.j.jenkins.createProject(WorkflowJob.class, "prj");
+                p.setDefinition(new CpsFlowDefinition(
+                    "node {\n" +
+                        "  withDockerContainer('mcr.microsoft.com/windows/nanoserver:" + releaseTag + "') { \n" +
+                        "    bat 'echo ran OK' \n" +
+                        "  }\n" +
+                        "}", true));
+                WorkflowRun b = story.j.assertBuildStatusSuccess(p.scheduleBuild2(0));
+                story.j.assertLogContains("ran OK", b);
+            }
+        });
+    }
 }

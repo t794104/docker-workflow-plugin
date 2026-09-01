@@ -10,7 +10,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.io.IOException;
 import java.util.Collections;
 
 public class WindowsDockerClientTest {
@@ -18,9 +17,7 @@ public class WindowsDockerClientTest {
     private DockerClient dockerClient;
 
     @Before
-    public void setup() throws Exception {
-        DockerTestUtil.assumeDocker();
-
+    public void setup() {
         TaskListener taskListener = StreamTaskListener.fromStderr();
         Launcher.LocalLauncher launcher = new Launcher.LocalLauncher(taskListener);
 
@@ -28,11 +25,12 @@ public class WindowsDockerClientTest {
     }
 
     @Test
-    public void test_run() throws IOException, InterruptedException {
+    public void test_run() throws Exception {
+        DockerTestUtil.assumeDocker();
         EnvVars launchEnv = DockerTestUtil.newDockerLaunchEnv();
         String containerId = dockerClient.run(
             launchEnv,
-            "learn/tutorial",
+            "busybox",
             null,
             null,
             Collections.emptyMap(),
@@ -43,7 +41,7 @@ public class WindowsDockerClientTest {
 
         Assert.assertEquals(64, containerId.length());
         ContainerRecord containerRecord = dockerClient.getContainerRecord(launchEnv, containerId);
-        Assert.assertEquals(dockerClient.inspect(launchEnv, "learn/tutorial", ".Id"), containerRecord.getImageId());
+        Assert.assertEquals(dockerClient.inspect(launchEnv, "busybox", ".Id"), containerRecord.getImageId());
         Assert.assertTrue(containerRecord.getContainerName().length() > 0);
         Assert.assertTrue(containerRecord.getHost().length() > 0);
         Assert.assertTrue(containerRecord.getCreated() > 1000000000000L);

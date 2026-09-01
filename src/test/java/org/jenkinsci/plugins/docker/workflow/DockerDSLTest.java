@@ -46,7 +46,10 @@ import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.RestartableJenkinsRule;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.NoSuchFileException;
 import java.util.Collections;
 import java.util.Set;
 import java.util.TreeSet;
@@ -100,8 +103,14 @@ public class DockerDSLTest {
             String qualifiedName = prefix + kid.getName();
             if (kid.isDirectory()) {
                 grep(kid, text, qualifiedName + "/", matches);
-            } else if (kid.isFile() && FileUtils.readFileToString(kid).contains(text)) {
-                matches.add(qualifiedName);
+            } else {
+                try {
+                    if (FileUtils.readFileToString(kid, StandardCharsets.UTF_8).contains(text)) {
+                        matches.add(qualifiedName);
+                    }
+                } catch (FileNotFoundException | NoSuchFileException x) {
+                    // ignore, e.g. tmp file
+                }
             }
         }
     }
@@ -113,7 +122,7 @@ public class DockerDSLTest {
                 assumeDocker();
                 WorkflowJob p = story.j.jenkins.createProject(WorkflowJob.class, "prj");
                 p.setDefinition(new CpsFlowDefinition(
-                    "def r = docker.image('httpd:2.4.12').inside {\n" +
+                    "def r = docker.image('httpd:2.4.62').inside {\n" +
                     "  semaphore 'wait'\n" +
                     "  sh 'cat /usr/local/apache2/conf/extra/httpd-userdir.conf'\n" +
                     "  42\n" +
@@ -140,7 +149,7 @@ public class DockerDSLTest {
                 assumeDocker();
                 WorkflowJob p = story.j.jenkins.createProject(WorkflowJob.class, "p");
                 p.setDefinition(new CpsFlowDefinition(
-                        "docker.image('maven:3.5.3-jdk-8').inside {\n" +
+                        "docker.image('maven:3.9.9-eclipse-temurin-17').inside {\n" +
                         "  sh 'mvn -version'\n" +
                         "}", true));
 
@@ -185,7 +194,7 @@ public class DockerDSLTest {
                 WorkflowJob p = story.j.jenkins.createProject(WorkflowJob.class, "prj");
                 p.setDefinition(new CpsFlowDefinition(
                     "node {\n" +
-                    "  def img = docker.image('httpd:2.4.12')\n" +
+                    "  def img = docker.image('httpd:2.4.62')\n" +
                     "  img.run().stop()\n" +
                     "  img.run('--memory-swap=-1').stop()\n" +
                     "  img.withRun {}\n" +
@@ -204,7 +213,7 @@ public class DockerDSLTest {
                 assumeDocker();
                 WorkflowJob p = story.j.jenkins.createProject(WorkflowJob.class, "prj");
                 p.setDefinition(new CpsFlowDefinition(
-                    "def r = docker.image('httpd:2.4.12').withRun {c ->\n" +
+                    "def r = docker.image('httpd:2.4.62').withRun {c ->\n" +
                     "  semaphore 'wait'\n" +
                     "  sh \"docker exec ${c.id} cat /usr/local/apache2/conf/extra/httpd-userdir.conf\"\n" +
                     "  42\n" +
@@ -230,7 +239,7 @@ public class DockerDSLTest {
                 assumeDocker();
                 WorkflowJob p = story.j.jenkins.createProject(WorkflowJob.class, "prj");
                 p.setDefinition(new CpsFlowDefinition(
-                        " docker.image('maven:3.3.9-jdk-8').withRun(\"--entrypoint mvn\", \"-version\") {c ->\n" +
+                        " docker.image('maven:3.9.9-eclipse-temurin-17').withRun(\"--entrypoint mvn\", \"-version\") {c ->\n" +
                                 "  sh \"docker logs ${c.id}\"" +
                                 "}", true));
                 story.j.assertBuildStatusSuccess(p.scheduleBuild2(0));
@@ -270,7 +279,7 @@ public class DockerDSLTest {
     @Test public void buildWithMultiStage() {
         story.addStep(new Statement() {
             @Override public void evaluate() throws Throwable {
-                assumeDocker(new VersionNumber("17.05"));
+                assumeDocker(DockerTestUtil.DockerOsMode.LINUX, new VersionNumber("17.05"));
                 WorkflowJob p = story.j.jenkins.createProject(WorkflowJob.class, "prj");
                 p.setDefinition(new CpsFlowDefinition(
                         "node {\n" +
@@ -346,7 +355,7 @@ public class DockerDSLTest {
                 WorkflowJob p = story.j.jenkins.createProject(WorkflowJob.class, "prj");
                 p.setDefinition(new CpsFlowDefinition(
                 "docker.withTool('default') {\n" +
-                "  docker.image('httpd:2.4.12').withRun {}\n" +
+                "  docker.image('httpd:2.4.62').withRun {}\n" +
                 "  sh 'echo PATH=$PATH'\n" +
                 "}", true));
                 story.j.assertLogContains("PATH=/usr/bin:", story.j.assertBuildStatusSuccess(p.scheduleBuild2(0)));
@@ -437,7 +446,7 @@ public class DockerDSLTest {
                 WorkflowJob p = story.j.jenkins.createProject(WorkflowJob.class, "prj");
                 p.setDefinition(new CpsFlowDefinition(
                     "node {\n" +
-                        "  def img = docker.image('httpd:2.4.12')\n" +
+                        "  def img = docker.image('httpd:2.4.62')\n" +
                         "  def port = img.withRun('-p 12345:80') { c -> c.port(80) }\n" +
                         "  echo \"container running on ${port}\"" +
                     "}", true));

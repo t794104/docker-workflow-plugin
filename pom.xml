@@ -4,11 +4,11 @@
     <parent>
         <groupId>org.jenkins-ci.plugins</groupId>
         <artifactId>plugin</artifactId>
-        <version>4.12</version>
-        <relativePath />
+        <version>6.2221.va_045130417c9</version>
+        <relativePath/>
     </parent>
     <artifactId>docker-workflow</artifactId>
-    <version>${revision}${changelist}</version>
+    <version>${changelist}</version>
     <name>Docker Pipeline</name>
     <description>Build and use Docker containers from pipelines</description>
     <packaging>hpi</packaging>
@@ -20,20 +20,23 @@
       </license>
     </licenses>
     
-    <url>https://github.com/jenkinsci/docker-workflow-plugin</url>
+    <url>https://github.com/jenkinsci/${project.artifactId}-plugin</url>
     <scm>
-      <connection>scm:git:git://github.com/jenkinsci/${project.artifactId}-plugin.git</connection>
-      <developerConnection>scm:git:git@github.com:jenkinsci/${project.artifactId}-plugin.git</developerConnection>
-      <url>https://github.com/jenkinsci/${project.artifactId}-plugin</url>
+      <connection>scm:git:https://github.com/${gitHubRepo}.git</connection>
+      <developerConnection>scm:git:git@github.com:${gitHubRepo}.git</developerConnection>
+      <url>https://github.com/${gitHubRepo}</url>
       <tag>${scmTag}</tag>
     </scm>
 
     <properties>
-        <revision>1.29</revision>
-        <changelist>-SNAPSHOT</changelist>
-        <jenkins.version>2.222.4</jenkins.version>
-        <java.level>8</java.level>
-        <pipeline-model-definition-plugin.version>1.8.1</pipeline-model-definition-plugin.version>
+        <changelist>999999-SNAPSHOT</changelist>
+        <!-- https://www.jenkins.io/doc/developer/plugin-development/choosing-jenkins-baseline/ -->
+        <jenkins.baseline>2.541</jenkins.baseline>
+        <jenkins.version>${jenkins.baseline}.3</jenkins.version>
+        <banObsoleteDependencyOverrides.skip>false</banObsoleteDependencyOverrides.skip>
+        <useBeta>true</useBeta>
+        <gitHubRepo>jenkinsci/${project.artifactId}-plugin</gitHubRepo>
+        <ban-commons-lang-2.skip>false</ban-commons-lang-2.skip>
     </properties>
     <repositories>
         <repository>
@@ -51,19 +54,17 @@
         <dependencies>
             <dependency>
                 <groupId>io.jenkins.tools.bom</groupId>
-                <artifactId>bom-2.222.x</artifactId>
-                <version>887.vae9c8ac09ff7</version>
+                <artifactId>bom-${jenkins.baseline}.x</artifactId>
+                <version>6751.v745d6a_31066a_</version>
                 <scope>import</scope>
                 <type>pom</type>
             </dependency>
-
         </dependencies>
     </dependencyManagement>
     <dependencies>
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
             <artifactId>docker-commons</artifactId>
-            <version>1.19</version>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
@@ -116,7 +117,6 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
             <artifactId>config-file-provider</artifactId>
-            <version>2.10.1</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -150,6 +150,29 @@
             <groupId>org.jenkins-ci.main</groupId>
             <artifactId>jenkins-test-harness-tools</artifactId>
             <version>2.2</version>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.jenkins-ci.plugins</groupId>
+                    <artifactId>gradle</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.jenkins-ci.plugins</groupId>
+            <artifactId>ssh-slaves</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jenkins-ci.plugins</groupId>
+            <artifactId>ssh-slaves</artifactId>
+            <classifier>tests</classifier>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <version>1.21.3</version>
             <scope>test</scope>
         </dependency>
         <!-- Required because git plugin optionally depends on a recent version of matrix-project, and if we do not depend

@@ -28,20 +28,19 @@ package org.jenkinsci.plugins.docker.workflow.declarative;
 import com.cloudbees.hudson.plugins.folder.AbstractFolder;
 import com.cloudbees.hudson.plugins.folder.AbstractFolderProperty;
 import com.cloudbees.hudson.plugins.folder.AbstractFolderPropertyDescriptor;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import hudson.Extension;
 import hudson.model.Item;
 import hudson.model.ItemGroup;
 import hudson.model.Items;
 import hudson.model.Job;
 import hudson.model.Run;
-import org.apache.commons.lang.StringUtils;
+
 import org.jenkinsci.Symbol;
 import org.jenkinsci.plugins.docker.commons.credentials.DockerRegistryEndpoint;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
-
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 /**
  * Provides folder level configuration.
@@ -91,7 +90,7 @@ public class FolderConfig extends AbstractFolderProperty<AbstractFolder<?>> {
             Items.XSTREAM2.addCompatibilityAlias("org.jenkinsci.plugins.pipeline.modeldefinition.config.FolderConfig", FolderConfig.class);
         }
 
-        @Nonnull
+        @NonNull
         @Override
         public String getDisplayName() {
             return Messages.PipelineModelDefinition_DisplayName();
@@ -113,7 +112,7 @@ public class FolderConfig extends AbstractFolderProperty<AbstractFolder<?>> {
                         FolderConfig config = (FolderConfig) folder.getProperties().get(FolderConfig.class);
                         if (config != null) {
                             String label = config.getDockerLabel();
-                            if (!StringUtils.isBlank(label)) {
+                            if (label != null && !label.isBlank()) {
                                 return label;
                             }
                         }
@@ -141,8 +140,11 @@ public class FolderConfig extends AbstractFolderProperty<AbstractFolder<?>> {
                         FolderConfig config = (FolderConfig) folder.getProperties().get(FolderConfig.class);
                         if (config != null) {
                             DockerRegistryEndpoint registry = config.getRegistry();
-                            if (registry != null && !StringUtils.isBlank(registry.getUrl())) {
-                                return registry.getUrl();
+                            if (registry != null) {
+                                String url = registry.getUrl();
+                                if (url != null && !url.isBlank()) {
+                                    return url;
+                                }
                             }
                         }
                     }
@@ -169,8 +171,11 @@ public class FolderConfig extends AbstractFolderProperty<AbstractFolder<?>> {
                         FolderConfig config = (FolderConfig) folder.getProperties().get(FolderConfig.class);
                         if (config != null) {
                             DockerRegistryEndpoint registry = config.getRegistry();
-                            if (registry != null && !StringUtils.isBlank(registry.getCredentialsId())) {
-                                return registry.getCredentialsId();
+                            if (registry != null) {
+                                String credentialsId = registry.getCredentialsId();
+                                if (credentialsId != null && !credentialsId.isBlank()) {
+                                    return credentialsId;
+                                }
                             }
                         }
                     }

@@ -30,8 +30,15 @@ import hudson.util.StreamTaskListener;
 import hudson.util.VersionNumber;
 import org.junit.Assume;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.jenkinsci.plugins.docker.commons.tools.DockerTool;
 
@@ -41,11 +48,30 @@ import org.jenkinsci.plugins.docker.commons.tools.DockerTool;
 public class DockerTestUtil {
     public static String DEFAULT_MINIMUM_VERSION = "1.3";
 
-    public static void assumeDocker() throws Exception {
-        assumeDocker(new VersionNumber(DEFAULT_MINIMUM_VERSION));
+    // Major Windows kernel versions. See https://hub.docker.com/r/microsoft/windows-nanoserver
+    private static List<String> MAJOR_WINDOWS_KERNEL_VERSIONS = Arrays.asList(
+        "10.0.17763.6659", // 1809
+        "10.0.18363.1556", // 1909
+        "10.0.19041.1415", // 2004
+        "10.0.19042.1889", // 20H2
+        "10.0.20348.2966", // 2022
+        "10.0.26100.2605"  // 2025
+    );
+
+    public enum DockerOsMode {
+        LINUX,
+        WINDOWS
     }
-    
-    public static void assumeDocker(VersionNumber minimumVersion) throws Exception {
+
+    public static void assumeDocker() throws Exception {
+        assumeDocker(DockerOsMode.LINUX, new VersionNumber(DEFAULT_MINIMUM_VERSION));
+    }
+
+    public static void assumeDocker(DockerOsMode osMode) throws Exception {
+        assumeDocker(osMode, new VersionNumber(DEFAULT_MINIMUM_VERSION));
+    }
+
+    public static void assumeDocker(DockerOsMode osMode, VersionNumber minimumVersion) throws Exception {
         Launcher.LocalLauncher localLauncher = new Launcher.LocalLauncher(StreamTaskListener.NULL);
         try {
             int status = localLauncher
@@ -54,6 +80,16 @@ public class DockerTestUtil {
                 .start()
                 .joinWithTimeout(DockerClient.CLIENT_TIMEOUT, TimeUnit.SECONDS, localLauncher.getListener());
             Assume.assumeTrue("Docker working", status == 0);
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            status = localLauncher
+                .launch()
+                .cmds(DockerTool.getExecutable(null, null, null, null), "version", "-f", "{{.Server.Os}}")
+                .stdout(out)
+                .start()
+                .joinWithTimeout(DockerClient.CLIENT_TIMEOUT, TimeUnit.SECONDS, localLauncher.getListener());
+            DockerOsMode cmdOsMode = DockerOsMode.valueOf(out.toString().trim().toUpperCase());
+            Assume.assumeTrue("Docker working", status == 0);
+            Assume.assumeTrue("Docker os mode " + osMode, osMode == cmdOsMode);
         } catch (IOException x) {
             Assume.assumeNoException("have Docker installed", x);
         }
@@ -61,8 +97,58 @@ public class DockerTestUtil {
         Assume.assumeFalse("Docker version not < " + minimumVersion.toString(), dockerClient.version().isOlderThan(minimumVersion));
     }
 
+    public static void assumeWindows() throws Exception {
+        Assume.assumeTrue(System.getProperty("os.name").toLowerCase().contains("windows"));
+    }
+
     public static void assumeNotWindows() throws Exception {
         Assume.assumeFalse(System.getProperty("os.name").toLowerCase().contains("windows"));
+    }
+
+    public static void assumeDrive(char drive) throws Exception {
+        Assume.assumeTrue(new File(drive + ":/").exists());
+    }
+
+    public static String getWindowsKernelVersion() throws Exception {
+        Launcher.LocalLauncher localLauncher = new Launcher.LocalLauncher(StreamTaskListener.NULL);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+
+        int status = localLauncher
+            .launch()
+            .cmds("cmd", "/c", "ver")
+            .stdout(out)
+            .stderr(err)
+            .start()
+            .joinWithTimeout(DockerClient.CLIENT_TIMEOUT, TimeUnit.SECONDS, localLauncher.getListener());
+
+        if (status != 0) {
+            throw new RuntimeException(String.format("Failed to obtain Windows kernel version with exit code: %d stdout: %s stderr: %s", status, out, err));
+        }
+
+        Matcher matcher = Pattern.compile("Microsoft Windows \\[Version ([^\\]]+)\\]").matcher(out.toString().trim());
+
+        if (matcher.matches()) {
+            return matcher.group(1);
+        } else {
+            throw new RuntimeException("Unable to obtain Windows kernel version from output: " + out);
+        }
+    }
+
+    /**
+     * @return The image tag of an image with a kernel version corresponding to the closest compatible Windows release
+     * @throws Exception
+     */
+    public static String getWindowsImageTag() throws Exception {
+        // Kernel must match when running Windows containers on docker on Windows if < Windows 11 with Server 2022
+        String kernelVersion = DockerTestUtil.getWindowsKernelVersion();
+
+        // Select the highest well known kernel version <= ours since sometimes an image may not exist for our version
+        Optional<String> wellKnownKernelVersion = MAJOR_WINDOWS_KERNEL_VERSIONS.stream()
+            .filter(k -> k.compareTo(kernelVersion) <= 0).max(java.util.Comparator.naturalOrder());
+
+        // Fall back to trying our kernel version
+        return wellKnownKernelVersion.orElse(kernelVersion);
     }
 
     public static EnvVars newDockerLaunchEnv() {

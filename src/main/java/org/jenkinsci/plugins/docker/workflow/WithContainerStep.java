@@ -25,6 +25,8 @@ package org.jenkinsci.plugins.docker.workflow;
 
 import com.google.common.base.Optional;
 import com.google.inject.Inject;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.AbortException;
 import hudson.EnvVars;
 import hudson.Extension;
@@ -63,8 +65,6 @@ import org.jenkinsci.plugins.workflow.steps.StepContextParameter;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
 
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.Serializable;
@@ -77,14 +77,15 @@ import java.util.stream.Collectors;
 public class WithContainerStep extends AbstractStepImpl {
     
     private static final Logger LOGGER = Logger.getLogger(WithContainerStep.class.getName());
-    private final @Nonnull String image;
+    private final @NonNull String image;
     private String args;
     private String toolName;
 
-    @DataBoundConstructor public WithContainerStep(@Nonnull String image) {
+    @DataBoundConstructor public WithContainerStep(@NonNull String image) {
         this.image = image;
     }
-    
+
+    @NonNull
     public String getImage() {
         return image;
     }
@@ -106,7 +107,7 @@ public class WithContainerStep extends AbstractStepImpl {
         this.toolName = Util.fixEmpty(toolName);
     }
 
-    private static void destroy(String container, Launcher launcher, Node node, EnvVars launcherEnv, String toolName) throws Exception {
+    private static void destroy(String container, @NonNull Launcher launcher, Node node, EnvVars launcherEnv, String toolName) throws Exception {
         new DockerClient(launcher, node, toolName).stop(launcherEnv, container);
     }
 
@@ -228,7 +229,7 @@ public class WithContainerStep extends AbstractStepImpl {
             return ws.sibling(ws.getName() + System.getProperty(WorkspaceList.class.getName(), "@") + "tmp");
         }
 
-        @Override public void stop(@Nonnull Throwable cause) throws Exception {
+        @Override public void stop(@NonNull Throwable cause) throws Exception {
             if (container != null) {
                 LOGGER.log(Level.FINE, "stopping container " + container, cause);
                 destroy(container, launcher, getContext().get(Node.class), env, toolName);
@@ -247,7 +248,7 @@ public class WithContainerStep extends AbstractStepImpl {
         private final boolean hasEnv;
         private final boolean hasWorkdir;
 
-        Decorator(String container, EnvVars envHost, String ws, String toolName, VersionNumber dockerVersion) {
+        Decorator(String container, EnvVars envHost, String ws, @CheckForNull String toolName, VersionNumber dockerVersion) {
             this.container = container;
             this.envHost = Util.mapToEnv(envHost);
             this.ws = ws;
@@ -256,7 +257,8 @@ public class WithContainerStep extends AbstractStepImpl {
             this.hasWorkdir = dockerVersion != null && dockerVersion.compareTo(new VersionNumber("17.12")) >= 0;
         }
 
-        @Override public Launcher decorate(final Launcher launcher, final Node node) {
+        @NonNull
+        @Override public Launcher decorate(@NonNull final Launcher launcher, @NonNull final Node node) {
             return new Launcher.DecoratedLauncher(launcher) {
                 @Override public Proc launch(Launcher.ProcStarter starter) throws IOException {
                     String executable;
@@ -275,7 +277,11 @@ public class WithContainerStep extends AbstractStepImpl {
                                 if (hasWorkdir) {
                                     prefix.add("--workdir");
                                     masksPrefixList.add(false);
-                                    prefix.add(path);
+                                    if (super.isUnix()) {
+                                        prefix.add(path);
+                                    } else {
+                                        prefix.add(WindowsUtil.quoteArgument(path));
+                                    }
                                     masksPrefixList.add(false);
                                 } else {
                                     String safePath = path.replace("'", "'\"'\"'");
@@ -331,8 +337,20 @@ public class WithContainerStep extends AbstractStepImpl {
                         originalMasks = new boolean[starter.cmds().size()];
                     }
 
-                    // Adapted from decorateByPrefix:
-                    starter.cmds().addAll(0, prefix);
+                    List<String> cmds = new ArrayList<>();
+                    cmds.addAll(prefix);
+
+                    if (!super.isUnix() && starter.cmds().size() >= 3 && "cmd".equals(starter.cmds().get(0)) && "/c".equalsIgnoreCase(starter.cmds().get(1))) {
+                        // JENKINS-75102 Docker exec on Windows processes character escaping differently.
+                        // Modify launch to work with special characters in a way that docker exec can handle.
+                        cmds.addAll(starter.cmds().subList(0, 2));
+                        cmds.add("call");
+                        cmds.addAll(starter.cmds().subList(2, starter.cmds().size()).stream()
+                            .map(cmd -> cmd.replaceAll("\"\"(.*)\"\"", "\"$1\"")).collect(Collectors.toList()));
+                    } else {
+                        cmds.addAll(starter.cmds());
+                    }
+                    starter.cmds(cmds);
 
                     boolean[] masks = new boolean[originalMasks.length + prefix.size()];
                     boolean[] masksPrefix = new boolean[masksPrefixList.size()];
@@ -348,6 +366,15 @@ public class WithContainerStep extends AbstractStepImpl {
                 @Override public void kill(Map<String,String> modelEnvVars) throws IOException, InterruptedException {
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
                     String executable = getExecutable();
+                    // For this code to be able to successfully kill processes:
+                    // 1: The image must contain `ps`, which notably excludes slim variants of Debian.
+                    // 2. The version of `ps` being used must support `-o command`. Busybox does not (so no Alpine!).
+                    //    `-o args` seems to be a more portable equivalent, but even then, see JENKINS-52881.
+                    // 3. The version of `ps` being used must support the `e` output modifier to include environment
+                    //    variables in the command's output. Otherwise, the output only includes `jsc=<cookie here>` and
+                    //    `JENKINS_SERVER_COOKIE=$jsc`, but the output must include `JENKINS_SERVER_COOKIE=<cookie here>
+                    //    for this code to work.
+                    // In practice, this means that this code only works with images that include procps.
                     if (getInner().launch().cmds(executable, "exec", container, "ps", "-A", "-o", "pid,command", "e").stdout(baos).quiet(true).start().joinWithTimeout(DockerClient.CLIENT_TIMEOUT, TimeUnit.SECONDS, listener) != 0) {
                         throw new IOException("failed to run ps");
                     }
@@ -399,7 +426,10 @@ public class WithContainerStep extends AbstractStepImpl {
         }
 
         @Override protected void finished(StepContext context) throws Exception {
-            destroy(container, context.get(Launcher.class), context.get(Node.class), context.get(EnvVars.class), toolName);
+            Launcher launcher = context.get(Launcher.class);
+            if (launcher != null) {
+                destroy(container, launcher, context.get(Node.class), context.get(EnvVars.class), toolName);
+            }
         }
 
     }
@@ -414,6 +444,7 @@ public class WithContainerStep extends AbstractStepImpl {
             return "withDockerContainer";
         }
 
+        @NonNull
         @Override public String getDisplayName() {
             return "Run build steps inside a Docker container";
         }
